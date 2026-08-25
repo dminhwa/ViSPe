@@ -1,0 +1,10 @@
+{
+  "sound-list": [
+    {
+      "name": "sample-1",
+      "dir": "data/sound.wav",
+      "text": "Trường Đại học Công nghệ Thông tin",
+      "emotion": "joy"
+    }
+  ]
+}

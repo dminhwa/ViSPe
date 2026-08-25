@@ -1,0 +1,13 @@
+# Python Virtual Environments & Caches
+__pycache__/
+*.py[cod]
+.venv/
+env/
+
+# Data Outputs & Large Media Files
+src/predict.json
+data/*.mp3
+
+# IDE / Editor Files
+.vscode/
+.idea/

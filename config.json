@@ -1,0 +1,12 @@
+{
+  "paths": {
+    "default_sound_text_data": "src/sound.json",
+    "predict_history_file": "src/predict.json"
+  },
+  "default_asr": {
+    "model": "openai/whisper-small"
+  },
+  "default_pte": {
+    "model": "bhadresh-savani/distilbert-base-uncased-emotion"
+  }
+}
