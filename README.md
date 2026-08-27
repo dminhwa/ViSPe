@@ -3,136 +3,197 @@
 > **End-to-End Speech Evaluation Pipeline combining Automatic Speech Recognition (ASR) and Predict Emotion from Text (PTE) for Vietnamese Audio**
 
 [![Python](https://img.shields.io/badge/Python-3.x-blue.svg)](https://www.python.org/)
-[![ASR](https://img.shields.io/badge/ASR-Automatic%20Speech%20Recognition-orange.svg)](#modules-overview)
-[![PTE](https://img.shields.io/badge/PTE-Predict%20Emotion%20from%20Text-purple.svg)](#modules-overview)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](#license)
-
-**ViSPe (Vietnamese Speech-PTE Evaluator)** is an open-source, modular Python framework designed to evaluate speech recognition (ASR) and text-based emotion classification (PTE) joint systems on Vietnamese speech datasets.
-
-The system transcribes Vietnamese audio into text using ASR models, passes the recognized text into PTE models to infer speaker emotions, benchmarks performance against ground-truth labels using standard NLP/Speech metrics, and records detailed execution logs in structured JSON format.
+[![ASR](https://img.shields.io/badge/ASR-Automatic%20Speech%20Recognition-orange.svg)](#2-features--how-it-works)
+[![PTE](https://img.shields.io/badge/PTE-Predict%20Emotion%20from%20Text-purple.svg)](#2-features--how-it-works)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](#9-license--citation)
 
 ---
 
-## Key Features
+## 1. Introduction
 
-* **Modular Architecture**: Run ASR independently, PTE independently, or end-to-end via `pipeline.py`.
-* **Automatic Speech Recognition (ASR)**: Transcribe Vietnamese speech to text and compute standardized Word Error Rate (WER) with automated text normalization.
-* **Predict Emotion from Text (PTE)**: Ingest transcribed text to predict multi-class emotion distributions and compute Accuracy, Macro F1, and Weighted F1 scores.
-* **Structured JSON Experiment Tracking**: Save setup configs, dataset manifests, and fine-grained benchmarking history into JSON format without needing an external database.
-* **Open-Source & Unrestricted**: Free to modify, distribute, and integrate into open-source, academic, or commercial software.
+### About the Author
+Hello! I am **Minh** (Pham Thai Dang Minh), an Information Technology (IT) student at the **University of Information Technology, Vietnam National University Ho Chi Minh City (UIT - VNU-HCM)**.
 
----
+### About the Project
+**ViSPe v1 (Vietnamese Speech-PTE Evaluator)** is an open-source, modular Python evaluation system designed to benchmark joint speech recognition and text emotion recognition pipelines specifically tailored for Vietnamese audio datasets. 
 
-## Modules Overview
-
-ViSPe is structured into independent components inside `src/` and orchestrated via root entry scripts:
-
-### 1. `src/asr.py` (`ASR` Engine)
-* **Purpose**: Handles Speech-to-Text inference and speech recognition quality evaluation.
-* **Key Functions**:
-  * `init_model()`: Loads HuggingFace ASR models (e.g., `openai/whisper-small`).
-  * `normalize_text(text)`: Standardizes text by converting to lowercase, removing punctuation, and collapsing whitespace for fair metric comparison.
-  * `compute_wer(preds, refs)`: Uses HuggingFace `evaluate` (`wer` metric) to compute Word Error Rate.
-  * `log_history(ver, total_wer, details)`: Logs execution metadata and sample-level WER records into `src/wer.json`.
-
-### 2. `src/pte.py` (`PTE` Engine)
-* **Purpose**: Performs text classification to infer emotional states from transcribed text.
-* **Key Functions**:
-  * `init_model()`: Loads HuggingFace text-classification models (e.g., `bhadresh-savani/distilbert-base-uncased-emotion`).
-  * `compute_metrics(preds, refs)`: Computes Accuracy, Macro F1-Score, and Weighted F1-Score using HuggingFace `evaluate`.
-  * `log_history(ver, metrics, details)`: Saves prediction probability distributions and metric summaries into `src/pte.json`.
-
-### 3. `pipeline.py` (`ViSPePipeline` Orchestrator)
-* **Purpose**: Manages the complete end-to-end pipeline across ASR and PTE modules.
-* **Execution Flow**:
-  1. Reads sample entries from `src/sound.json`.
-  2. Executes ASR (`Audio -> Transcribed Text`) and calculates sample-level WER.
-  3. Passes ASR output directly to PTE (`Transcribed Text -> Predicted Emotion`) and captures confidence scores for all emotion classes.
-  4. Calculates overall dataset-level evaluation metrics (WER, Accuracy, Macro F1, Weighted F1).
-  5. Stores comprehensive experiment results in `src/predict.json`.
+Speech emotion analysis systems often suffer from error propagation when transcribing raw audio into text before classifying emotion. ViSPe v1 provides a unified framework to quantitatively measure both transcription fidelity and emotion classification performance simultaneously, storing experiment histories in structured JSON format.
 
 ---
 
-## Calculation & Evaluation Methodology
+## 2. Features & How It Works
 
-### 1. Text Normalization
-Before calculating speech recognition error rates, both predicted text ($\hat{y}_{text}$) and reference ground-truth text ($y_{text}$) undergo automated preprocessing:
-* Conversion to lowercase.
-* Stripping all punctuation marks (`[\!"#$%&\'()*+,\-./:;<=>?@\[\\\]^_`{|}~]`).
-* Collapsing extra whitespace into a single space.
+ViSPe v1 operates through an integrated two-stage pipeline combined with automated text normalization and metric benchmarking:
 
-### 2. Word Error Rate (WER)
-Word Error Rate measures speech recognition accuracy at the word level using Levenshtein distance:
+```text
+ Audio Input (.wav)
+       │
+       ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ 1. Automatic Speech Recognition (ASR)                  │
+ │    • Ingests audio files via HuggingFace ASR models    │
+ │    • Transcribes speech to Vietnamese text             │
+ └─────────────────────────┬──────────────────────────────┘
+                           │ Transcribed Text
+                           ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ 2. Text Normalization                                  │
+ │    • Lowercases text, strips punctuation & whitespace  │
+ │    • Calculates Word Error Rate (WER) vs Ground Truth  │
+ └─────────────────────────┬──────────────────────────────┘
+                           │ Cleaned Text
+                           ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ 3. Predict Emotion from Text (PTE)                     │
+ │    • Ingests transcribed text into NLP classifiers     │
+ │    • Predicts emotion labels & confidence distributions│
+ └─────────────────────────┬──────────────────────────────┘
+                           │ Predicted Emotion + Scores
+                           ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ 4. Metrics Aggregation & JSON Tracking                 │
+ │    • Computes Accuracy, Macro F1, and Weighted F1      │
+ │    • Appends experiment runs to predict.json history   │
+ └────────────────────────────────────────────────────────┘
+```
 
-$$\text{WER} = \frac{S + D + I}{N} = \frac{\text{Substitutions} + \text{Deletions} + \text{Insertions}}{\text{Number of Reference Words}}$$
-
-* A lower WER score represents higher transcription accuracy.
-
-### 3. Classification Accuracy
-Evaluates the ratio of correctly predicted emotion labels over total valid labeled samples ($N_{emo}$):
-
-$$\text{Accuracy} = \frac{\sum_{i=1}^{N_{emo}} \mathbb{I}(\hat{y}_{emo,i} = y_{emo,i})}{N_{emo}}$$
-
-### 4. Macro F1-Score
-Calculates the unweighted average of F1-scores across all emotion categories $C$:
-
-$$\text{Macro F1} = \frac{1}{\vert{}C\vert{}} \sum_{c \in C} \text{F1}_c$$
-
-$$\text{F1}_c = 2 \times \frac{\text{Precision}_c \times \text{Recall}_c}{\text{Precision}_c + \text{Recall}_c}$$
-
-* Evaluates performance evenly across all emotion classes regardless of dataset balance.
-
-### 5. Weighted F1-Score
-Calculates the average F1-score weighted by the support (true sample count $N_c$) of each class:
-
-$$\text{Weighted F1} = \sum_{c \in C} \left( \frac{N_c}{N_{emo}} \times \text{F1}_c \right)$$
+### Core Features
+* **Dual-Stage Processing**: Evaluate ASR and PTE individually or end-to-end.
+* **Automated Speech Transcription (ASR)**: Native integration with HuggingFace ASR pipelines (e.g., OpenAI Whisper models) to convert speech into text.
+* **Emotion Classification from Text (PTE)**: Classifies recognized text into target emotional states (e.g., joy, sadness, anger, fear) and outputs probability distributions across all labels.
+* **Standardized Metric Suite**: Calculates Word Error Rate (WER), Accuracy, Macro F1-Score, and Weighted F1-Score.
+* **Zero-Database JSON History**: All experiment logs, configurations, and per-sample outputs are logged directly into structured JSON files for complete reproducibility.
 
 ---
 
-## Directory & File Structure
+## 3. Installation & Setup
+
+### Prerequisites
+* Python 3.8 or higher
+* `pip` package manager
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/dminhwa/ViSPe.git
+cd ViSPe
+```
+
+### Step 2: Create a Virtual Environment
+
+#### Windows
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+#### Linux / macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### Step 3: Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 4. Project Structure
 
 ```text
 ViSPe/
 ├── data/
 │   └── sound.wav          # Input audio sample files
 ├── src/
-│   ├── asr.py             # ASR evaluation engine class
-│   ├── pte.py             # PTE emotion classification engine class
-│   ├── config.json        # Pipeline configuration settings
-│   ├── sound.json         # Dataset manifest (paths, transcripts, emotion labels)
-│   ├── predict.json       # End-to-end pipeline evaluation history
-│   ├── wer.json           # Standalone ASR tracking history
-│   └── pte.json           # Standalone PTE tracking history
-├── pipeline.py            # Main entry point for end-to-end pipeline
+│   ├── asr.py             # Standalone ASR engine class
+│   ├── pte.py             # Standalone PTE emotion classification engine class
+│   ├── config.json        # Pipeline configuration parameters
+│   ├── sound.json         # Dataset manifest (audio paths, reference text & emotion)
+│   ├── predict.json       # Combined pipeline execution logs and history
+│   ├── wer.json           # Standalone ASR benchmark history
+│   └── pte.json           # Standalone PTE benchmark history
+├── pipeline.py            # Main entry point for end-to-end evaluation
 ├── README.md              # Project documentation
-└── requirements.txt       # Project dependencies
-Dataset Format & Schema: src/sound.jsonAudio samples, target transcriptions, and ground-truth emotion labels are defined in src/sound.json.Manifest JSON ExampleJSON{
+└── requirements.txt       # Dependencies list
+```
+
+### Manifest Schema Specification: `src/sound.json`
+
+The dataset input file contains audio metadata, reference ground-truth text, and ground-truth emotion labels:
+
+```json
+{
   "sound-list": [
     {
       "name": "sample-1",
       "dir": "data/sound.wav",
       "text": "Xin chào Tôi là Minh là sinh viên Trường Đại học Công nghệ Thông tin",
       "emotion": "joy"
-    },
-    {
-      "name": "sample-2",
-      "dir": "data/sample_02.wav",
-      "text": "Tôi thực sự rất buồn về chuyện này.",
-      "emotion": "sadness"
     }
   ]
 }
-Manifest Fields DescriptionField KeyData TypeRequiredDescriptionsound-listArrayYesList of audio sample records to process.nameStringYesUnique identifier/alias for the audio entry.dirStringYesPath to the audio file (relative to root or absolute).textStringYesReference text transcript used for ASR WER evaluation.emotionStringOptionalReference ground-truth emotion label used for PTE evaluation.Installation & Setup1. Clone RepositoryBashgit clone [https://github.com/dminhwa/ViSPe.git](https://github.com/dminhwa/ViSPe.git)
-cd ViSPe
-2. Set Up Virtual EnvironmentWindowsBashpython -m venv .venv
-.venv\Scripts\activate
-Linux / macOSBashpython3 -m venv .venv
-source .venv/bin/activate
-3. Install DependenciesBashpip install -r requirements.txt
-Usage Guide1. End-to-End Evaluation PipelineTo execute full ASR transcription and PTE emotion classification:Bashpython pipeline.py
-2. Standalone ASR BenchmarkingTo test speech recognition quality only:Bashpython src/asr.py
-3. Standalone PTE BenchmarkingTo test emotion classification performance on raw text:Bashpython src/pte.py
-Output & Tracking Format: src/predict.jsonAll execution results are automatically written to src/predict.json:JSON{
+```
+
+| Field Key | Type | Description |
+| :--- | :--- | :--- |
+| `sound-list` | `Array` | List of audio sample objects to process. |
+| `name` | `String` | Unique sample identifier or alias. |
+| `dir` | `String` | Relative or absolute path to the audio file. |
+| `text` | `String` | Ground-truth reference text for ASR WER evaluation. |
+| `emotion` | `String` | Ground-truth reference emotion label for PTE evaluation. |
+
+---
+
+## 5. Usage
+
+### 1. End-to-End Pipeline Evaluation
+To run the full ASR + PTE workflow over all samples in `src/sound.json`:
+
+```bash
+python pipeline.py
+```
+
+### 2. Standalone ASR Evaluation
+To benchmark speech recognition only:
+
+```bash
+python src/asr.py
+```
+
+### 3. Standalone PTE Evaluation
+To benchmark text emotion classification only:
+
+```bash
+python src/pte.py
+```
+
+---
+
+## 6. Running & Output Tracking
+
+### Evaluation Metrics Calculation
+
+1. **Text Normalization**: Strips punctuation, lowers case, and collapses whitespace before WER calculation.
+2. **Word Error Rate (WER)**: 
+   $$WER = \frac{S + D + I}{N}$$
+   *(Substitutions $S$, Deletions $D$, Insertions $I$, Reference Words $N$)*.
+3. **Accuracy**: Ratio of correctly predicted emotions over total samples.
+4. **Macro F1-Score**: Unweighted mean of F1-scores across all emotion classes:
+   $$Macro\ F1 = \frac{1}{|C|} \sum_{c \in C} F1_c$$
+5. **Weighted F1-Score**: F1-score average weighted by the support of each emotion class:
+   $$Weighted\ F1 = \sum_{c \in C} \left( \frac{N_c}{N_{total}} \times F1_c \right)$$
+
+### Output Tracking History: `src/predict.json`
+
+Results are automatically persisted after execution:
+
+```json
+{
   "tracking_history": [
     {
       "version": "v1.0.0-vispe",
@@ -173,4 +234,78 @@ Output & Tracking Format: src/predict.jsonAll execution results are automaticall
     }
   ]
 }
-LicenseThis project is licensed under the MIT License. It is open-source software — you are free to use, modify, distribute, and integrate this project without restrictions or credit requirements.
+```
+
+---
+
+## 7. Workflow Overview
+
+```text
+┌───────────────────────────┐
+│     Audio Input Data      │
+│      (data/*.wav)         │
+└─────────────┬─────────────┘
+              │
+              ▼
+┌───────────────────────────┐
+│  Stage 1: ASR Engine      │
+│  (src/asr.py)             │
+└─────────────┬─────────────┘
+              │ Transcribed Text
+              ▼
+┌───────────────────────────┐
+│  Stage 2: PTE Engine      │
+│  (src/pte.py)             │
+└─────────────┬─────────────┘
+              │ Predicted Emotion
+              ▼
+┌───────────────────────────┐
+│  Stage 3: Evaluation      │
+│  • WER Calculation        │
+│  • Accuracy & F1 Scores   │
+└─────────────┬─────────────┘
+              │
+              ▼
+┌───────────────────────────┐
+│  Stage 4: JSON Logging    │
+│  (src/predict.json)       │
+└───────────────────────────┘
+```
+
+---
+
+## 8. Author
+
+* **Pham Thai Dang Minh**
+* **Institution**: University of Information Technology (UIT - VNU-HCM)
+* **Major**: Information Technology
+* **GitHub**: [@dminhwa](https://github.com/dminhwa)
+* **Repository**: [https://github.com/dminhwa/ViSPe.git](https://github.com/dminhwa/ViSPe.git)
+
+---
+
+## 9. License & Citation
+
+### License
+This project is open-source software licensed under the **MIT License**.
+
+### Citation / Attribution
+If you use, adapt, or build upon **ViSPe v1** in your research, academic work, or software projects, please cite and credit the project as follows:
+
+```text
+PHAM THAI DANG MINH - ViSPe - UITVNUHCM
+```
+
+#### BibTeX Citation
+
+```bibtex
+@misc{vispe2026,
+  author = {Pham Thai Dang Minh},
+  title = {ViSPe: Vietnamese Speech-PTE Evaluator},
+  year = {2026},
+  publisher = {GitHub},
+  journal = {GitHub Repository},
+  howpublished = {\url{https://github.com/dminhwa/ViSPe.git}},
+  institution = {University of Information Technology (UIT - VNU-HCM)}
+}
+```
