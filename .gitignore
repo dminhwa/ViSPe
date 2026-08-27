@@ -4,9 +4,9 @@ __pycache__/
 .venv/
 env/
 
-# Data Outputs & Large Media Files
+# Data Outputs 
 src/predict.json
-data/*.mp3
+data/**/*.wav
 
 # IDE / Editor Files
 .vscode/

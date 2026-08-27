@@ -1,262 +1,224 @@
-from transformers import pipeline
-import os, warnings
-import time 
-import torch, json 
-import evaluate
-import re
+import os
+import json
+import time
 from datetime import datetime
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = CURRENT_DIR 
+from src.asr import ASR
+from src.pte import PTE
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class ViSPePipeline:
-    def __init__(self, config_rel_path: str = os.path.join("src", "config.json")):
-        config_full_path = os.path.join(BASE_DIR, config_rel_path)
-        self.config = self.load_config(config_full_path)
+    """
+    Main evaluation pipeline orchestrating ASR (Speech-to-Text) 
+    and PTE (Text-to-Emotion) modules to benchmark joint system metrics.
+    """
+    
+    def __init__(self, cfg_path: str = os.path.join("src", "config.json")):
+        """
+        Initialize pipeline components and load general configuration.
         
-        self.asr_model_name = None
-        self.pte_model_name = None
-        self.device = 0
+        Args:
+            cfg_path (str): Relative path to configuration file.
+        """
+        self.cfg_path = cfg_path
+        self.cfg = self._load_cfg(os.path.join(ROOT_DIR, cfg_path))
+        
+        # Instantiate base module engines
+        self.asr_mod = ASR(config_rel_path=cfg_path)
+        self.pte_mod = PTE(config_rel_path=cfg_path)
         self.verbose = True
-        
-        self.asr_pipeline = None
-        self.pte_pipeline = None
-        
-        self.wer_metric = evaluate.load("wer")
-        self.f1_metric = evaluate.load("f1")
-        self.accuracy_metric = evaluate.load("accuracy")
-        
-        self.setup_env()
 
-    def load_config(self, path: str) -> dict:
+    def _load_cfg(self, path: str) -> dict:
+        """
+        Load configuration from JSON file or return fallback structure.
+        
+        Args:
+            path (str): Absolute file path to config JSON.
+            
+        Returns:
+            dict: Parsed configuration dictionary.
+        """
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-
         return {
             "paths": {
                 "default_sound_text_data": os.path.join("src", "sound.json"),
                 "predict_history_file": os.path.join("src", "predict.json")
-            },
-            "default_asr": {
-                "model": "openai/whisper-small"
-            },
-            "default_pte": {
-                "model": "bhadresh-savani/distilbert-base-uncased-emotion"
             }
         }
 
-    def setup_env(self):
-        warnings.filterwarnings("ignore")
-        os.environ["TRANSFORMERS_VERBOSITY"] = "error"
-        os.environ["HF_HUB_DISABLE_SYMBOLS_WARNING"] = "1"
-        os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN_WARNING"] = "1"
-        os.environ["TOKENIZERS_PARALLELISM"] = "false"
-        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    def init_models(self):
+        """
+        Interactively trigger model loading routines for both ASR and PTE engines.
+        """
+        print("=== [ViSPe] STEP 1: Setting up ASR Model ===")
+        self.asr_mod.importModel()
+        
+        print("\n=== [ViSPe] STEP 2: Setting up PTE Model ===")
+        self.pte_mod.importModel()
+        
+        self.verbose = self.asr_mod.verbose
 
-    def normalize_text(self, text: str) -> str:
-        text = text.lower()
-        text = re.sub(r'[^\w\s]', '', text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
+    def log_history(self, ver: str, metrics: dict, details: list):
+        """
+        Append detailed benchmark results and metadata into tracking history JSON file.
+        
+        Args:
+            ver (str): Current experiment version string.
+            metrics (dict): Evaluated metrics summary (WER, F1, Accuracy).
+            details (list): Sample-level prediction logs.
+        """
+        rel_path = self.cfg.get("paths", {}).get("predict_history_file", os.path.join("src", "predict.json"))
+        out_path = os.path.join(ROOT_DIR, rel_path)
 
-    def import_models(self):
-        while True:
+        hist_data = {"tracking_history": []}
+        if os.path.exists(out_path):
             try:
-                def_asr = self.config.get("default_asr", {}).get("model", "openai/whisper-small")
-                def_pte = self.config.get("default_pte", {}).get("model", "bhadresh-savani/distilbert-base-uncased-emotion")
-
-                asr_inp = input(f"Input ASR Model (Default: {def_asr}): ").strip()
-                pte_inp = input(f"Input PTE Model (Default: {def_pte}): ").strip()
-                device_inp = input("Select Device (0: GPU, 1: CPU) [Default: 0]: ").strip()
-                verbose_inp = input("Show detailed progress? (True/False) [Default: True]: ").strip().lower()
-
-                self.asr_model_name = asr_inp if asr_inp else def_asr
-                self.pte_model_name = pte_inp if pte_inp else def_pte
-                self.device = 0 if device_inp != "1" and torch.cuda.is_available() else -1
-                self.verbose = False if verbose_inp == "false" else True
-
-                print(f"\n[ViSPe] Loading ASR Model '{self.asr_model_name}'...")
-                self.asr_pipeline = pipeline(
-                    task="automatic-speech-recognition",
-                    model=self.asr_model_name,
-                    device=self.device
-                )
-
-                print(f"[ViSPe] Loading PTE Model '{self.pte_model_name}'...")
-                self.pte_pipeline = pipeline(
-                    task="text-classification",
-                    model=self.pte_model_name,
-                    top_k=None,
-                    device=self.device
-                )
-
-                print("[ViSPe] Both models loaded successfully.\n")
-                break
-            except Exception as e:
-                print(f"Failed to load models ({e}), please try again!\n")
-
-    def save_predict_history(self, version: str, overall_metrics: dict, details: list):
-        rel_path = self.config["paths"].get("predict_history_file", os.path.join("src", "predict.json"))
-        tracking_path = os.path.join(BASE_DIR, rel_path)
-
-        tracking_data = {"tracking_history": []}
-        if os.path.exists(tracking_path):
-            try:
-                with open(tracking_path, "r", encoding="utf-8") as f:
-                    tracking_data = json.load(f)
+                with open(out_path, "r", encoding="utf-8") as f:
+                    hist_data = json.load(f)
             except Exception:
                 pass
 
-        new_entry = {
-            "version": version,
+        entry = {
+            "version": ver,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "models": {
-                "asr": self.asr_model_name,
-                "pte": self.pte_model_name
+                "asr": self.asr_mod.model,
+                "pte": self.pte_mod.model
             },
             "total_samples": len(details),
-            "overall_metrics": overall_metrics,
+            "overall_metrics": metrics,
             "details": details
         }
 
-        tracking_data["tracking_history"].append(new_entry)
+        hist_data["tracking_history"].append(entry)
 
-        with open(tracking_path, "w", encoding="utf-8") as f:
-            json.dump(tracking_data, f, ensure_ascii=False, indent=2)
-        print(f"\n--> Saved ViSPe prediction history to '{tracking_path}'")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(hist_data, f, ensure_ascii=False, indent=2)
+        print(f"\n--> Saved ViSPe evaluation history to '{out_path}'")
 
-    def process(self, version: str = "v1.0.0-vispe"):
-        rel_data_path = self.config["paths"].get("default_sound_text_data", os.path.join("src", "sound.json"))
-        data_path = os.path.join(BASE_DIR, rel_data_path)
+    def run(self, ver: str = "v1.0.0-vispe"):
+        """
+        Execute end-to-end processing pipeline over data sample batch.
+        
+        Args:
+            ver (str): Release tag or experiment version.
+        """
+        rel_data_path = self.cfg.get("paths", {}).get("default_sound_text_data", os.path.join("src", "sound.json"))
+        data_path = os.path.join(ROOT_DIR, rel_data_path)
 
-        if not self.asr_pipeline or not self.pte_pipeline:
-            self.import_models()
+        # Lazy loading fallback
+        if not self.asr_mod.pipeline or not self.pte_mod.pipeline:
+            self.init_models()
 
         if not os.path.exists(data_path):
             print(f"Error: Data file not found at '{data_path}'")
             return
 
-        predictions_text = []
-        references_text = []
-        predictions_emotion = []
-        references_emotion = []
-        details_log = []
+        txt_preds, txt_refs = [], []
+        emo_preds, emo_refs = [], []
+        details = []
 
+        print("\n=== [ViSPe] Running End-to-End Pipeline Evaluation ===")
+        
         with open(data_path, "r", encoding="utf-8") as f:
-            sound_list = json.load(f)["sound-list"]
+            samples = json.load(f).get("sound-list", [])
 
-            for id_idx, sound_detail in enumerate(sound_list, 1):
-                sound_name = sound_detail.get("name", f"sample_{id_idx}")
-                raw_audio_dir = sound_detail["dir"]
-                audio_dir = os.path.join(BASE_DIR, raw_audio_dir) if not os.path.isabs(raw_audio_dir) else raw_audio_dir
+            for idx, item in enumerate(samples, 1):
+                s_name = item.get("name", f"sample_{idx}")
+                raw_path = item["dir"]
+                aud_path = os.path.join(ROOT_DIR, raw_path) if not os.path.isabs(raw_path) else raw_path
                 
-                target_text = sound_detail.get("text", "")
-                target_emotion = sound_detail.get("emotion", None)
+                gt_txt = item.get("text", "")
+                gt_emo = item.get("emotion", None)
 
                 if self.verbose:
-                    print(f"[{id_idx}/{len(sound_list)}] Processing: {sound_name}")
+                    print(f"\n[{idx}/{len(samples)}] Processing: {s_name}")
 
-                if not os.path.exists(audio_dir):
+                if not os.path.exists(aud_path):
                     if self.verbose:
-                        print(f"Skip: Audio file missing at '{audio_dir}'\n")
+                        print(f"Skip: Audio missing at '{aud_path}'")
                     continue
 
-                # 1. ASR Execution
-                asr_raw_out = self.asr_pipeline(audio_dir)["text"]
-                norm_predicted_text = self.normalize_text(asr_raw_out)
-                norm_target_text = self.normalize_text(target_text)
+                # 1. ASR Stage: Audio -> Transcribed Text
+                asr_out = self.asr_mod.pipeline(
+                    aud_path,
+                    generate_kwargs={"task": "transcribe", "language": "vietnamese"},
+                    return_timestamps=False
+                )
+                pred_txt = asr_out["text"]
+                wer = round(self.asr_mod.compute_wer(predictions=[pred_txt], references=[gt_txt]), 4)
 
-                sample_wer = round(self.wer_metric.compute(
-                    predictions=[norm_predicted_text], 
-                    references=[norm_target_text]
-                ), 4)
+                # 2. PTE Stage: Transcribed Text -> Emotion Classification
+                pte_out = self.pte_mod.pipeline(pred_txt)[0]
+                top_item = max(pte_out, key=lambda x: x["score"])
+                pred_emo = top_item["label"]
+                emo_score = round(float(top_item["score"]), 4)
 
-                # 2. PTE Execution
-                pte_raw_out = self.pte_pipeline(asr_raw_out)[0]
-                top_emotion_item = max(pte_raw_out, key=lambda x: x["score"])
-                predicted_emotion = top_emotion_item["label"]
-                emotion_score = round(float(top_emotion_item["score"]), 4)
-
-                formatted_scores = {
-                    pred["label"]: round(float(pred["score"]), 4) for pred in pte_raw_out
-                }
+                scores_map = {res["label"]: round(float(res["score"]), 4) for res in pte_out}
 
                 if self.verbose:
-                    print(f"  ASR Predicted : {asr_raw_out}")
-                    print(f"  ASR Target    : {target_text}")
-                    print(f"  Sample WER    : {round(sample_wer * 100, 2)}%")
-                    print(f"  PTE Predicted : {predicted_emotion} ({round(emotion_score * 100, 2)}%)")
-                    if target_emotion:
-                        print(f"  PTE Target    : {target_emotion}")
+                    print(f"  ASR Predicted : {pred_txt}")
+                    print(f"  ASR Target    : {gt_txt}")
+                    print(f"  Sample WER    : {round(wer * 100, 2)}%")
+                    print(f"  PTE Predicted : {pred_emo} ({round(emo_score * 100, 2)}%)")
+                    if gt_emo:
+                        print(f"  PTE Target    : {gt_emo}")
                     print("-" * 40)
 
-                predictions_text.append(norm_predicted_text)
-                references_text.append(norm_target_text)
+                txt_preds.append(pred_txt)
+                txt_refs.append(gt_txt)
 
-                if target_emotion:
-                    predictions_emotion.append(predicted_emotion)
-                    references_emotion.append(target_emotion)
+                if gt_emo:
+                    emo_preds.append(pred_emo)
+                    emo_refs.append(gt_emo)
 
-                details_log.append({
-                    "id": id_idx,
-                    "name": sound_name,
-                    "audio_dir": raw_audio_dir,
+                rec = {
+                    "id": idx,
+                    "name": s_name,
+                    "audio_dir": raw_path,
                     "asr_result": {
-                        "predicted_text": asr_raw_out,
-                        "ground_truth_text": target_text,
-                        "wer": sample_wer
+                        "predicted_text": pred_txt,
+                        "ground_truth_text": gt_txt,
+                        "wer": wer
                     },
                     "pte_result": {
-                        "predicted_emotion": predicted_emotion,
-                        "ground_truth_emotion": target_emotion,
-                        "score": emotion_score,
-                        "all_scores": formatted_scores
+                        "predicted_emotion": pred_emo,
+                        "ground_truth_emotion": gt_emo,
+                        "score": emo_score,
+                        "all_scores": scores_map
                     }
-                })
-
+                }
+                details.append(rec)
                 time.sleep(0.1)
 
-        # 3. Computing Metrics
-        overall_metrics = {}
-        if references_text and predictions_text:
-            overall_wer = self.wer_metric.compute(
-                predictions=predictions_text, 
-                references=references_text
-            )
-            overall_metrics["wer"] = round(overall_wer, 4)
+        # 3. Overall Metrics Aggregation Stage
+        metrics = {}
+        if txt_refs and txt_preds:
+            metrics["wer"] = round(self.asr_mod.compute_wer(predictions=txt_preds, references=txt_refs), 4)
 
-        if references_emotion and predictions_emotion:
-            labels = sorted(list(set(references_emotion + predictions_emotion)))
-            label2id = {lbl: idx for idx, lbl in enumerate(labels)}
+        if emo_refs and emo_preds:
+            metrics.update(self.pte_mod.compute_metrics(predictions=emo_preds, references=emo_refs))
 
-            preds_id = [label2id[p] for p in predictions_emotion]
-            refs_id = [label2id[r] for r in references_emotion]
-
-            acc = self.accuracy_metric.compute(predictions=preds_id, references=refs_id)["accuracy"]
-            macro_f1 = self.f1_metric.compute(predictions=preds_id, references=refs_id, average="macro")["f1"]
-            weighted_f1 = self.f1_metric.compute(predictions=preds_id, references=refs_id, average="weighted")["f1"]
-
-            overall_metrics["accuracy"] = round(acc, 4)
-            overall_metrics["macro_f1"] = round(macro_f1, 4)
-            overall_metrics["weighted_f1"] = round(weighted_f1, 4)
-
-        if self.verbose and overall_metrics:
+        if self.verbose and metrics:
             print("\n==========================================")
             print("      ViSPe OVERALL EVALUATION RESULTS    ")
             print("==========================================")
-            if "wer" in overall_metrics:
-                print(f" OVERALL WER   : {round(overall_metrics['wer'] * 100, 2)}%")
-            if "macro_f1" in overall_metrics:
-                print(f" ACCURACY      : {round(overall_metrics['accuracy'] * 100, 2)}%")
-                print(f" MACRO F1      : {round(overall_metrics['macro_f1'] * 100, 2)}%")
-                print(f" WEIGHTED F1   : {round(overall_metrics['weighted_f1'] * 100, 2)}%")
+            if "wer" in metrics:
+                print(f" OVERALL WER   : {round(metrics['wer'] * 100, 2)}%")
+            if "macro_f1" in metrics:
+                print(f" ACCURACY      : {round(metrics['accuracy'] * 100, 2)}%")
+                print(f" MACRO F1      : {round(metrics['macro_f1'] * 100, 2)}%")
+                print(f" WEIGHTED F1   : {round(metrics['weighted_f1'] * 100, 2)}%")
             print("==========================================")
 
-        if details_log:
-            self.save_predict_history(version=version, overall_metrics=overall_metrics, details=details_log)
+        if details:
+            self.log_history(ver=ver, metrics=metrics, details=details)
+
 
 if __name__ == "__main__":
     app = ViSPePipeline()
-    app.import_models()
-    app.process(version="v1.0.0-vispe") 
+    app.init_models()
+    app.run(ver="v1.0.0-vispe")
