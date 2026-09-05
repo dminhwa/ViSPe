@@ -12,7 +12,7 @@
 ## 1. Introduction
 
 ### About the Author
-Hello! I am **Minh** (Pham Thai Dang Minh), an Information Technology (IT) student at the **University of Information Technology, Vietnam National University Ho Chi Minh City (UIT - VNU-HCM)**.
+Hello! I am **Kadu** (Pham Thai Dang Minh), an Information Technology (IT) student at the **University of Information Technology, Vietnam National University Ho Chi Minh City (UIT - VNU-HCM)**.
 
 ### About the Project
 **ViSPe v1 (Vietnamese Speech-PTE Evaluator)** is an open-source, modular Python evaluation system designed to benchmark joint speech recognition and text emotion recognition pipelines specifically tailored for Vietnamese audio datasets. 
